@@ -1,0 +1,165 @@
+---
+title: "Practical Machine Learning Project"
+author: "André Tipping"
+output:html_document:
+keep_md: true
+fig_caption: true
+---
+
+# Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+The data is taken from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which the participants did the exercise.
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+
+# Data Processing
+### Pre-processing/set-up
+Necessary packages are loaded
+```{r warning=FALSE, message=FALSE}
+library(caret)
+library(rattle)
+```
+
+### Data download and read
+```{r echo=TRUE}
+## Download and unzip the data, provided it doesn't already exist
+if(!file.exists("pml-training.csv")){
+  fileUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+  download.file(fileUrl,destfile="pml-training.csv",method="curl")
+}
+if(!file.exists("pml-testing.csv")){
+  fileUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  download.file(fileUrl,destfile="pml-testing.csv",method="curl")
+}
+## Read in the data
+if(!"trainIn" %in% ls()){
+trainIn <- read.csv("pml-training.csv")
+}
+if(!"testIn" %in% ls()){
+testIn <- read.csv("pml-testing.csv")
+}
+```
+
+```{r}
+dim(trainIn)
+dim(testIn)
+```
+```{r results='hide'}
+str(trainIn)
+```
+As can be seen, there are 19622 observations from 160 variables in the training data set; while there are 20 observations in the testing set.
+
+### Cleaning data
+Both the training and test data sets need to be trimmed down - the first seven variables do not affect the 'classe' variable and therefore are removed; along with variables with a majority of NA values, and variables that are near-zero-variance.
+```{r cache=TRUE}
+train <- trainIn[,-c(1:7)]
+trainNZV <- nearZeroVar(train)
+train <- train[,-trainNZV]
+train <- train[, colSums(is.na(train)) == 0] 
+
+test <- testIn[,-c(1:7)]
+testNZV <- nearZeroVar(test)
+test <- test[,-testNZV]
+test <- test[, colSums(is.na(test)) == 0] 
+
+dim(train)
+dim(test)
+
+
+## Check to see if data contains missing values
+anyNA(train)
+```
+
+The data sets have now been reduced to 53 variables. 
+
+# Model
+Two models will be analysed: Decision Tree and Random Forest.
+
+The data is partitioned to create a 60% training set and a 40% test set.
+```{r}
+## Data slicing
+set.seed(5)
+inTrain <- createDataPartition(train$classe, p=0.6, list=FALSE)
+training <- train[inTrain,]
+testing <- train[-inTrain,]
+```
+
+Cross validation is used as the resampling method and this is set using the 'trainControl' function. The number of resampling iterations will be set at 3.
+```{r}
+trctrl <- trainControl(method="cv", number=3)
+```
+
+### Prediction with classification trees
+```{r cache=TRUE}
+## Training Decision Tree classifier denoted by 'rpart'
+modelTree <- train(classe ~ ., method="rpart", trControl=trctrl, data=training)
+```
+The dendogram can be seen in [Appendix 1][].
+
+The model is then validated by running the *testing* data on it.
+
+```{r}
+# display confusion matrix and model accuracy
+trainPrTr <- predict(modelTree, testing)
+cmTree <- confusionMatrix(testing$classe, trainPrTr)
+cmTree
+
+# Calculation of accuracy and out of sample error
+accTree <- sum(trainPrTr == testing$classe)/length(trainPrTr)
+ooseTree <- 1 - accTree
+
+```
+
+
+### Prediction with Random Forest
+```{r cache=TRUE}
+## Training Random Forest denoted by 'rf'
+modelRF <- train(classe ~ ., method="rf", trControl=trctrl, data = training)
+```
+
+The model is then validated by running the *testing* data on it.
+```{r}
+# display confusion matrix and model accuracy
+trainPrRF <- predict(modelRF, testing)
+cmRF <- confusionMatrix(testing$classe, trainPrRF)
+cmRF
+
+# Calculation of accuracy and out of sample error
+accRF <- sum(trainPrRF == testing$classe)/length(trainPrRF)
+ooseRF <- 1 - accRF
+```
+A plot showing the accuracy of the model by the number of predictors used can be seen in [Appendix 2][]. This shows that the number of predictors that gives the highest accuracy is 27. In addition, using the varImp function ([Appendix 3][]), the 20 most important variables are shown. The variable *roll_belt* has the highest importance, meaning that its impact on the outcome values is significant.
+
+# Results
+```{r}
+print(data.frame(
+    "Model" = c('Classification Tree', 'Random Forest'),
+    "Accuracy" = c(accTree, accRF),
+    "Out of Sample Error" = c(ooseTree, ooseRF)), digits = 3)
+```
+The table above shows that the **Random Forest** model has the highest accuracy of the two models, and by extension, the lowest out of sample error, therefore it will be used on the test data.
+```{r}
+# Prediction of new values
+final <- predict(modelRF, newdata=test)
+final
+```
+
+\newpage
+
+# Appendix
+### Appendix 1
+```{r fig.cap="Figure 1: Decision Tree"}
+fancyRpartPlot(modelTree$finalModel)
+```
+
+### Appendix 2
+```{r fig.cap="Figure 2: Accuracy of Random Forest Model versus Randomly selected Predictors"}
+plot(modelRF)
+```
+
+### Appendix 3
+```{r cache=TRUE}
+varImp(modelRF)
+```
